@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>Phone Mouse — Touchpad</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="bar">
+    <div id="status" class="status disconnected"><span class="dot"></span><span id="statusText">connecting…</span></div>
+    <div id="latency" title="round-trip latency">— ms</div>
+    <button id="fsBtn" type="button" title="Fullscreen">⛶</button>
+  </header>
+
+  <div id="tokenRow" hidden>
+    <label for="tokenInput">Pairing token</label>
+    <input id="tokenInput" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="from the laptop screen">
+    <button id="connectBtn" type="button">Connect</button>
+  </div>
+
+  <main id="touchpad" aria-label="Touchpad area">
+    <div id="hint">
+      <p class="big">🖱️ Touchpad</p>
+      <p>1 finger move · tap = click · double-tap = double click<br>
+      hold still = drag · 2 fingers = scroll / pinch · 2-finger tap = right click</p>
+    </div>
+    <div id="cursor" hidden></div>
+    <div id="touchDots"></div>
+  </main>
+
+  <footer id="controls">
+    <div class="row">
+      <label>Speed <input id="sens" type="range" min="0.3" max="3" step="0.1" value="1"> <span id="sensVal">1.0×</span></label>
+      <label class="chk"><input id="invertY" type="checkbox"> invert Y</label>
+    </div>
+    <div class="row btns">
+      <button id="leftBtn" type="button">Left click</button>
+      <button id="rightBtn" type="button">Right click</button>
+      <button id="dblBtn" type="button">Double click</button>
+    </div>
+    <details id="logWrap"><summary>Event log</summary><pre id="log"></pre></details>
+  </footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
