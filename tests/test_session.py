@@ -123,5 +123,41 @@ class TestSessionHeartbeat(unittest.TestCase):
         self.assertIn(("button_down", "left"), mouse.events)
 
 
+class TestStateThrottling(unittest.TestCase):
+    """Demo cursor state must not flood the link on every move packet.
+
+    On a slow network, per-move state messages are pure bufferbloat.
+    They are throttled to state_min_interval (default 50ms = 20Hz).
+    """
+
+    def setUp(self):
+        self.mouse = NullMouse()
+        self.s = Session("secret", self.mouse, state_min_interval=0.05)
+        self.s.handle_message(hello(), now=0.0)  # welcome state at t=0
+        self.s.handle_message(touch("touch_start", [{"id": 1, "x": 0, "y": 0}], 2, 0.0), now=0.0)
+
+    def _move(self, x, seq, now):
+        return self.s.handle_message(
+            touch("touch_move", [{"id": 1, "x": x, "y": 0}], seq, now), now=now
+        )
+
+    def test_first_move_after_interval_reports_state(self):
+        out = self._move(50, 3, 0.1)
+        self.assertTrue(any(m["t"] == "state" for m in out))
+
+    def test_rapid_second_move_state_is_suppressed(self):
+        self._move(50, 3, 0.1)
+        out = self._move(60, 4, 0.11)  # 10ms later: within throttle window
+        self.assertFalse(any(m["t"] == "state" for m in out))
+        # ...but the mouse itself still moved (throttling only affects echo).
+        self.assertTrue(any(e[0] == "move" for e in self.mouse.events))
+
+    def test_state_resumes_after_interval(self):
+        self._move(50, 3, 0.1)
+        self._move(60, 4, 0.11)
+        out = self._move(70, 5, 0.2)  # 100ms after last state: report again
+        self.assertTrue(any(m["t"] == "state" for m in out))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -56,6 +56,24 @@ def lan_ip():
         return "127.0.0.1"
 
 
+def configure_socket(conn):
+    """Tune a WebSocket socket for touchpad latency. Never raises.
+
+    - TCP_NODELAY: disable Nagle. Nagle batches small packets and can add
+      40-200ms to every move — the #1 cause of "laggy touchpad" reports.
+    - TCP keepalive: notice dead phones quickly (belt-and-braces with the
+      application-level heartbeat).
+    """
+    try:
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except (OSError, AttributeError):
+        pass
+    try:
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except (OSError, AttributeError):
+        pass
+
+
 class TouchpadHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -171,6 +189,7 @@ class _Handler(BaseHTTPRequestHandler):
         preauthed = url_token is not None and url_token == self.server.token
 
         conn = self.connection
+        configure_socket(conn)
         self.server.claim_ws(conn)
         try:
             conn.sendall(build_handshake_response(key))

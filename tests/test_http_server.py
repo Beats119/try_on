@@ -2,11 +2,12 @@
 import http.client
 import json
 import os
+import socket
 import tempfile
 import threading
 import unittest
 
-from phone_mouse.http_server import TouchpadHTTPServer
+from phone_mouse.http_server import TouchpadHTTPServer, configure_socket
 from phone_mouse.mouse import NullMouse
 
 
@@ -76,6 +77,31 @@ class TestHTTPServer(unittest.TestCase):
     def test_ws_without_upgrade_is_426(self):
         status, _, _ = self.get("/ws")
         self.assertEqual(status, 426)
+
+
+class TestConfigureSocket(unittest.TestCase):
+    """WebSocket sockets must disable Nagle (TCP_NODELAY).
+
+    Nagle batches small packets and can add 40-200ms per move on a
+    touchpad link. This is the single biggest latency fix.
+    """
+
+    def test_tcp_nodelay_enabled(self):
+        # Real TCP pair (AF_UNIX socketpairs don't support TCP_NODELAY).
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        client = socket.create_connection(listener.getsockname(), timeout=5)
+        server_side, _ = listener.accept()
+        try:
+            configure_socket(server_side)
+            self.assertEqual(
+                server_side.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY), 1
+            )
+        finally:
+            client.close()
+            server_side.close()
+            listener.close()
 
 
 if __name__ == "__main__":
