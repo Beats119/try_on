@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from phone_mouse.discovery import bluetooth_ip
 from phone_mouse.http_server import TouchpadHTTPServer, lan_ip
 from phone_mouse.mouse import create_mouse
 

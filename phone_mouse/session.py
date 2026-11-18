@@ -33,6 +33,7 @@ class Session:
         heartbeat_interval=5.0,
         heartbeat_timeout=15.0,
         preauthed=False,
+        state_min_interval=0.05,
     ):
         self.token = token
         self.mouse = mouse
@@ -41,9 +42,11 @@ class Session:
         self.heartbeat_timeout = heartbeat_timeout
         self.authed = preauthed
         self.closed = False
+        self.state_min_interval = state_min_interval
         self._last_seq = -1
         self._last_activity = None
         self._last_ping_sent = None
+        self._last_state_time = None
         try:
             self._last_state_pos = mouse.position()
         except Exception:
@@ -70,10 +73,10 @@ class Session:
                 self.closed = True
                 return [self.error_message("auth_failed", "invalid token")]
             self.authed = True
-            return self.welcome_messages()
+            return self.welcome_messages(now=now)
 
         if mtype == "hello":
-            return self.welcome_messages()
+            return self.welcome_messages(now=now)
         if mtype == "ping":
             return [make_message("pong", {"ts": msg["data"].get("ts", now)}, seq=msg["seq"], ts=now)]
         if mtype == "pong":
@@ -87,7 +90,7 @@ class Session:
             self._last_seq = msg["seq"]
             events = self.gesture.handle(mtype, msg["data"]["points"], now)
             self._apply(events)
-            return self._maybe_state()
+            return self._maybe_state(now=now)
         return []  # ack/state/error from a client: ignore
 
     def tick(self, now):
@@ -103,7 +106,7 @@ class Session:
         events = self.gesture.tick(now)
         if events:
             self._apply(events)
-            out.extend(self._maybe_state())
+            out.extend(self._maybe_state(now=now))
         if self._last_ping_sent is None or now - self._last_ping_sent >= self.heartbeat_interval:
             out.append(make_message("ping", {"ts": now}, ts=now))
             self._last_ping_sent = now
@@ -111,7 +114,7 @@ class Session:
 
     # -- internals ---------------------------------------------------------
 
-    def welcome_messages(self):
+    def welcome_messages(self, now=None):
         out = [
             make_message(
                 "ack",
@@ -119,7 +122,7 @@ class Session:
                 ts=time.time(),
             )
         ]
-        out.extend(self._maybe_state(force=True))
+        out.extend(self._maybe_state(now=now, force=True))
         return out
 
     def _apply(self, events):
@@ -141,14 +144,27 @@ class Session:
             elif ev.kind == "zoom":
                 self.mouse.zoom(ev.dx)
 
-    def _maybe_state(self, force=False):
-        """In demo mode, echo the virtual cursor so the page can draw it."""
+    def _maybe_state(self, now=None, force=False):
+        """In demo mode, echo the virtual cursor so the page can draw it.
+
+        Throttled to ``state_min_interval``: on a slow network, echoing
+        every move is pure bufferbloat that makes the *input* path lag.
+        The mouse itself is never throttled — only this echo.
+        """
         if not isinstance(self.mouse, NullMouse):
             return []
         pos = self.mouse.position()
         if not force and pos == self._last_state_pos:
             return []
+        now = time.monotonic() if now is None else now
+        if (
+            not force
+            and self._last_state_time is not None
+            and now - self._last_state_time < self.state_min_interval
+        ):
+            return []
         self._last_state_pos = pos
+        self._last_state_time = now
         return [make_message("state", {"x": pos[0], "y": pos[1], "buttons": []}, ts=time.time())]
 
     @staticmethod

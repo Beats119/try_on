@@ -15,7 +15,7 @@ Just `python3 server.py` on the laptop and a web page on the phone.
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776ab?style=for-the-badge&logo=python&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-128%20passing-4f9cf9?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-143%20passing-4f9cf9?style=for-the-badge)
 ![Protocol](https://img.shields.io/badge/WebSocket-RFC%206455-0b0e14?style=for-the-badge)
 ![Platforms](https://img.shields.io/badge/Linux%20·%20Windows%20·%20macOS-8b98a9?style=for-the-badge)
 
@@ -64,6 +64,40 @@ The touchpad is live instantly — the token in the URL pre-pairs the phone.
 
 ---
 
+## 📶 Slow Wi-Fi? Switch to Bluetooth (PAN)
+
+Wi-Fi congestion can make latency spike from ~5ms to seconds. **Bluetooth
+PAN tethering** gives you the *same server* over Bluetooth with stable
+~10–30ms latency — completely independent of Wi-Fi.
+
+**Setup (Android phone):**
+
+1. Phone: **Settings → Bluetooth tethering** → turn it on, pair with your laptop.
+2. Laptop: accept the PAN connection (Linux: BlueZ/NetworkManager `bnep0`;
+   Windows/macOS: Bluetooth PAN).
+3. Restart `python3 server.py` — the banner now shows a **📶 Bluetooth URL**
+   alongside the Wi-Fi one.
+4. Open the Bluetooth URL on your phone. Same touchpad, no Wi-Fi needed.
+
+> **Why not "direct" Bluetooth?** A phone *browser* can't open raw
+> Bluetooth sockets: SPP needs a native app, and Web Bluetooth is BLE-only
+> (and missing on iOS Safari). PAN is the clever zero-dependency route —
+> it gives the phone a plain IP over Bluetooth, so the existing WebSocket
+> server works unchanged.
+
+### Why latency spikes — and how it's fixed
+
+| Cause | Fix |
+|---|---|
+| Nagle's algorithm batching small packets (+40–200ms/move) | `TCP_NODELAY` on every WebSocket socket |
+| Browser queueing seconds of stale moves when the network stalls | Client backpressure: drop stale moves, always send only the latest position |
+| Demo cursor echo flooding the link on every move | Server throttles state echoes to 20Hz (the mouse itself is never throttled) |
+
+> 💡 **Tip:** prefer 5GHz Wi-Fi over 2.4GHz, and keep the phone/laptop
+> close — Bluetooth PAN is the fallback when the network is congested.
+
+---
+
 ## 🖱️ Gestures
 
 | Gesture | Action |
@@ -100,6 +134,9 @@ flowchart LR
 - **Managed connection:** token pairing, heartbeat ping/pong with latency
   readout, dead-connection timeout, single-controller takeover (a fresh
   connection evicts a stale one), and auto-reconnect with backoff.
+- **Latency-hardened:** `TCP_NODELAY`, client backpressure (stale moves
+  are dropped, never queued), and throttled demo echoes — plus optional
+  Bluetooth PAN transport when Wi-Fi is congested.
 - **Zero dependencies:** the WebSocket layer is hand-rolled RFC 6455 on
   the standard library, so `python3 server.py` just works.
 
@@ -127,7 +164,7 @@ python3 server.py --demo          # virtual cursor, token "demo"
 
 ## 🧪 Development (test-driven)
 
-Built test-first: **128 tests** covering the protocol schema, the gesture
+Built test-first: **143 tests** covering the protocol schema, the gesture
 engine (fake-clock, deterministic), RFC 6455 framing (including the RFC's
 own test vectors), session auth / heartbeat / sequencing, every mouse
 backend's event translation (via injected fakes — no display needed), and

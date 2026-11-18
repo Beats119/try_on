@@ -194,12 +194,21 @@
     });
   }
 
+  // Backpressure: if the network is stalled, the browser queues every
+  // ws.send() — seconds of stale moves pile up and the cursor lags far
+  // behind your finger. Drop stale moves instead; the next frame sends
+  // only the latest position. Clicks/taps are never dropped.
+  var MAX_BUFFERED = 8192; // bytes of queued frames before we shed moves
   function scheduleMoveSend() {
     if (moveDirty) return;
     moveDirty = true;
     requestAnimationFrame(function () {
       moveDirty = false;
-      if (pointers.size) sendMsg("touch_move", { points: points() });
+      if (!pointers.size) return;
+      if (ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount > MAX_BUFFERED) {
+        return; // network congested: skip this move, keep only the latest
+      }
+      sendMsg("touch_move", { points: points() });
     });
   }
 
