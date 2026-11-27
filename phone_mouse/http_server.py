@@ -78,6 +78,20 @@ class TouchpadHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        # Phone browsers RST idle HTTP connections constantly (WinError
+        # 10054). socketserver would print a full traceback per reset —
+        # scary noise that looks like a crash. The server is unaffected,
+        # so swallow reset/pipe/abort errors silently; report real bugs.
+        import sys
+
+        exc_type = sys.exc_info()[0]
+        if exc_type is not None and issubclass(
+            exc_type, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)
+        ):
+            return
+        super().handle_error(request, client_address)
+
     def __init__(self, host, port, token, mouse, static_dir, gesture_kwargs=None):
         self.token = token
         self.mouse = mouse
@@ -244,7 +258,13 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send_all(conn, [session.error_message("bad_message", str(exc))])
                     session.closed = True
                     break
-                self._send_all(conn, session.handle_message(msg, now=time.monotonic()))
+                try:
+                    replies = session.handle_message(msg, now=time.monotonic())
+                except Exception:
+                    # One bad event (e.g. a mouse backend hiccup) must not
+                    # kill the whole session — report it and carry on.
+                    replies = [session.error_message("internal", "handler error")]
+                self._send_all(conn, replies)
                 if session.closed:
                     break
 
