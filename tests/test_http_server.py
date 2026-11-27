@@ -1,10 +1,14 @@
 """Tests for phone_mouse.http_server — static serving, health, WS upgrade."""
+import contextlib
 import http.client
+import io
 import json
 import os
 import socket
+import struct
 import tempfile
 import threading
+import time
 import unittest
 
 from phone_mouse.http_server import TouchpadHTTPServer, configure_socket
@@ -77,6 +81,62 @@ class TestHTTPServer(unittest.TestCase):
     def test_ws_without_upgrade_is_426(self):
         status, _, _ = self.get("/ws")
         self.assertEqual(status, 426)
+
+    def test_server_survives_abrupt_client_reset(self):
+        # Phone browsers RST idle connections all the time. The server
+        # must shrug it off and keep serving.
+        raw = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        raw.sendall(b"GET / HTT")
+        raw.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        raw.close()
+        time.sleep(0.3)
+        status, _, body = self.get("/health")
+        self.assertEqual(status, 200)
+        self.assertIn(b'"ok": true', body)
+
+
+class TestHandleError(unittest.TestCase):
+    """Client RSTs (WinError 10054) must be silent, not full tracebacks.
+
+    Phone browsers aggressively reset idle HTTP connections. socketserver
+    prints a traceback per reset by default — scary noise that looks like
+    a crash. The server itself is unaffected.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.server = TouchpadHTTPServer("127.0.0.1", 0, "tok", NullMouse(), cls.tmp.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.server_close()
+        cls.tmp.cleanup()
+
+    def _call_handle_error(self, exc):
+        buf = io.StringIO()
+        try:
+            raise exc
+        except Exception:
+            with contextlib.redirect_stderr(buf):
+                self.server.handle_error(None, ("127.0.0.1", 1234))
+        return buf.getvalue()
+
+    def test_connection_reset_is_silent(self):
+        out = self._call_handle_error(ConnectionResetError(10054, "forcibly closed"))
+        self.assertEqual(out, "")
+
+    def test_broken_pipe_is_silent(self):
+        out = self._call_handle_error(BrokenPipeError("broken pipe"))
+        self.assertEqual(out, "")
+
+    def test_connection_aborted_is_silent(self):
+        out = self._call_handle_error(ConnectionAbortedError(10053, "aborted"))
+        self.assertEqual(out, "")
+
+    def test_other_errors_still_reported(self):
+        out = self._call_handle_error(ValueError("real bug"))
+        self.assertIn("ValueError", out)
 
 
 class TestConfigureSocket(unittest.TestCase):

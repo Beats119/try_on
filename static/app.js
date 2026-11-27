@@ -31,6 +31,7 @@
   var moveDirty = false;
   var pingTimer = null;
   var wakeLock = null;
+  var lastPongAt = 0; // watchdog: server must answer our pings
 
   // ---- settings (persisted) -------------------------------------------
   var sens = parseFloat(localStorage.getItem("pm.sens") || "1");
@@ -75,6 +76,7 @@
     log("connecting to " + url.replace(/token=[^&]+/, "token=***"));
     ws = new WebSocket(url);
     ws.onopen = function () {
+      lastPongAt = Date.now();
       reconnectDelay = 500;
       setStatus("connected", "connected — touchpad ready");
       log("connected");
@@ -111,6 +113,7 @@
     var msg;
     try { msg = JSON.parse(ev.data); } catch (e) { return; }
     if (msg.t === "pong") {
+      lastPongAt = Date.now();
       var rtt = Math.max(0, Math.round((Date.now() / 1000 - msg.data.ts) * 1000));
       latencyEl.textContent = rtt + " ms";
     } else if (msg.t === "ping") {
@@ -142,6 +145,14 @@
   function startPing() {
     stopPing();
     pingTimer = setInterval(function () {
+      // Watchdog: if the server stopped answering pongs, the link is
+      // dead even though the socket still says OPEN (half-open). Force
+      // a reconnect instead of silently sending touches into the void.
+      if (Date.now() - lastPongAt > 12000) {
+        log("no pong from server — reconnecting");
+        try { ws.close(); } catch (e) { /* already closed */ }
+        return;
+      }
       sendMsg("ping", { ts: Date.now() / 1000 });
     }, 5000);
   }
@@ -161,9 +172,15 @@
     if (wakeLock) { try { wakeLock.release(); } catch (e) { /* noop */ } wakeLock = null; }
   }
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible" && ws && ws.readyState === WebSocket.OPEN) {
+    if (document.visibilityState !== "visible") return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
       requestWakeLock();
+    } else if (token) {
+      connect(); // page was hidden while the link died — revive it
     }
+  });
+  window.addEventListener("online", function () {
+    if (token && (!ws || ws.readyState !== WebSocket.OPEN)) connect();
   });
 
   // ---- touch streaming ------------------------------------------------------
