@@ -11,7 +11,10 @@ events, mimicking a real laptop touchpad:
 - **Long press** (hold still) = press-and-hold drag (button down, move,
   release) — like touchpad drag lock.
 - **Two fingers**: tap = right click, move together = scroll (with
-  momentum/inertia on release), pinch = ctrl+scroll zoom.
+  momentum/inertia on release), pinch = ctrl+scroll zoom. Scroll and
+  pinch are *disambiguated by mode-locking*: whichever gesture clearly
+  wins first locks in for the whole two-finger session, so scrolling
+  never triggers accidental zoom (and vice versa).
 - Lifting one of two fingers hands control to the remaining finger as a
   plain cursor mover (its tap is cancelled, so no surprise clicks).
 
@@ -76,6 +79,8 @@ class GestureEngine:
         long_press_timeout=0.5,
         tap_slop=12.0,
         accel=True,
+        scroll_lock_threshold=8.0,
+        pinch_lock_threshold=8.0,
     ):
         self.sensitivity = sensitivity
         self.scroll_sensitivity = scroll_sensitivity
@@ -84,6 +89,8 @@ class GestureEngine:
         self.long_press_timeout = long_press_timeout
         self.tap_slop = tap_slop
         self.accel = accel
+        self.scroll_lock_threshold = scroll_lock_threshold
+        self.pinch_lock_threshold = pinch_lock_threshold
 
         self._fingers = {}  # id -> _Finger (max 2 tracked)
         self._ignored = set()  # ids of 3rd+ fingers
@@ -93,6 +100,9 @@ class GestureEngine:
         self._prev_centroid = None
         self._prev_dist = None
         self._last_two_time = None
+        self._two_mode = None  # None (undecided) | "scroll" | "zoom"
+        self._two_start_centroid = None
+        self._two_start_dist = None
         self._pending_two = None  # info about first-lifted finger of a pair
         # Scroll inertia
         self._scroll_vx = 0.0
@@ -164,6 +174,9 @@ class GestureEngine:
                 self._prev_centroid = self._centroid()
                 self._prev_dist = self._dist()
                 self._last_two_time = now
+                self._two_mode = None
+                self._two_start_centroid = self._prev_centroid
+                self._two_start_dist = self._prev_dist
                 self._scroll_vx = 0.0
                 self._scroll_vy = 0.0
                 self._inertia_active = False
@@ -211,22 +224,47 @@ class GestureEngine:
             if self._prev_centroid is not None:
                 cdx = centroid[0] - self._prev_centroid[0]
                 cdy = centroid[1] - self._prev_centroid[1]
-                if abs(cdx) >= 0.5 or abs(cdy) >= 0.5:
-                    events.append(
-                        MouseEvent(
-                            "scroll",
-                            dx=cdx * self.scroll_sensitivity,
-                            dy=cdy * self.scroll_sensitivity,
-                        )
+                ddist = dist - self._prev_dist if self._prev_dist is not None else 0.0
+
+                if self._two_mode is None:
+                    # Disambiguate by cumulative displacement from the
+                    # session start: nothing fires until one gesture
+                    # clearly wins, then it locks for the session.
+                    scroll_disp = math.hypot(
+                        centroid[0] - self._two_start_centroid[0],
+                        centroid[1] - self._two_start_centroid[1],
                     )
-                    # Track scroll velocity (EMA) for inertia.
-                    dt = max(now - self._last_two_time, 1e-3) if self._last_two_time else 0.05
-                    self._scroll_vx = 0.7 * self._scroll_vx + 0.3 * (cdx / dt)
-                    self._scroll_vy = 0.7 * self._scroll_vy + 0.3 * (cdy / dt)
-            if self._prev_dist is not None:
-                ddist = dist - self._prev_dist
-                if abs(ddist) >= 1.0:
-                    events.append(MouseEvent("zoom", dx=ddist))
+                    pinch_disp = abs(dist - self._two_start_dist)
+                    scroll_wins = scroll_disp >= self.scroll_lock_threshold
+                    pinch_wins = pinch_disp >= self.pinch_lock_threshold
+                    if scroll_wins and pinch_wins:
+                        self._two_mode = (
+                            "scroll"
+                            if scroll_disp / self.scroll_lock_threshold
+                            >= pinch_disp / self.pinch_lock_threshold
+                            else "zoom"
+                        )
+                    elif scroll_wins:
+                        self._two_mode = "scroll"
+                    elif pinch_wins:
+                        self._two_mode = "zoom"
+
+                if self._two_mode == "scroll":
+                    if abs(cdx) >= 0.5 or abs(cdy) >= 0.5:
+                        events.append(
+                            MouseEvent(
+                                "scroll",
+                                dx=cdx * self.scroll_sensitivity,
+                                dy=cdy * self.scroll_sensitivity,
+                            )
+                        )
+                        # Track scroll velocity (EMA) for inertia.
+                        dt = max(now - self._last_two_time, 1e-3) if self._last_two_time else 0.05
+                        self._scroll_vx = 0.7 * self._scroll_vx + 0.3 * (cdx / dt)
+                        self._scroll_vy = 0.7 * self._scroll_vy + 0.3 * (cdy / dt)
+                elif self._two_mode == "zoom":
+                    if abs(ddist) >= 1.0:
+                        events.append(MouseEvent("zoom", dx=ddist))
             self._prev_centroid = centroid
             self._prev_dist = dist
             self._last_two_time = now
@@ -263,6 +301,7 @@ class GestureEngine:
                 remaining.last_time = now
                 self._prev_centroid = None
                 self._prev_dist = None
+                self._two_mode = None
             elif len(self._fingers) == 0:
                 events.extend(self._on_all_up(finger, duration, now))
         return events

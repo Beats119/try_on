@@ -15,7 +15,7 @@ Just `python3 server.py` on the laptop and a web page on the phone.
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776ab?style=for-the-badge&logo=python&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-143%20passing-4f9cf9?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-150%20passing-4f9cf9?style=for-the-badge)
 ![Protocol](https://img.shields.io/badge/WebSocket-RFC%206455-0b0e14?style=for-the-badge)
 ![Platforms](https://img.shields.io/badge/Linux%20·%20Windows%20·%20macOS-8b98a9?style=for-the-badge)
 
@@ -106,7 +106,7 @@ PAN tethering** gives you the *same server* over Bluetooth with stable
 | 👆 Tap | Left click |
 | 👆👆 Double-tap | Double click |
 | ✋ Press & hold still | Drag *(press-and-hold)* |
-| ✌️ 2-finger drag | Scroll |
+| ✌️ 2-finger drag | Scroll *(smart mode-lock: scroll & pinch never collide)* |
 | ✌️💨 2-finger flick + release | Scroll with momentum |
 | 🤏 Pinch / spread | Zoom *(Ctrl + scroll)* |
 | ✌️👆 2-finger tap | Right click |
@@ -164,7 +164,7 @@ python3 server.py --demo          # virtual cursor, token "demo"
 
 ## 🧪 Development (test-driven)
 
-Built test-first: **143 tests** covering the protocol schema, the gesture
+Built test-first: **150 tests** covering the protocol schema, the gesture
 engine (fake-clock, deterministic), RFC 6455 framing (including the RFC's
 own test vectors), session auth / heartbeat / sequencing, every mouse
 backend's event translation (via injected fakes — no display needed), and
